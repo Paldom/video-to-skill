@@ -1,0 +1,16 @@
+{
+  "$schema": "https://skills.sh/schemas/skills.sh.schema.json",
+  "notGrouped": "bottom",
+  "groupings": [
+    {
+      "title": "Video to knowledge base",
+      "description": "Paste a YouTube link or drop in an MP4 and get back a markdown note you can actually trust — every claim deep-linked to the second it was said, the moments that only make sense on screen embedded as screenshots.",
+      "skills": ["video-notes"]
+    },
+    {
+      "title": "Video extraction primitives",
+      "description": "The two halves of the pipeline, usable on their own: the words, with a quality gate that tells you when a transcript is lying to you, and the pixels, with scene detection tuned to the video in front of it rather than to a number from a blog post.",
+      "skills": ["video-transcribe", "video-keyframes"]
+    }
+  ]
+}

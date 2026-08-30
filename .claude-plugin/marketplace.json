@@ -1,0 +1,15 @@
+{
+  "name": "video-to-skill",
+  "owner": {
+    "name": "Paldom",
+    "url": "https://github.com/Paldom"
+  },
+  "plugins": [
+    {
+      "name": "video-to-skill",
+      "source": ".",
+      "description": "Agent Skills that turn a YouTube video or local MP4 into a structured markdown knowledge base: transcript retrieval, audio transcription, slide and frame capture, chaptering, and distillation into linked notes.",
+      "category": "development"
+    }
+  ]
+}

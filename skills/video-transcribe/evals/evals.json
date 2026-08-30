@@ -1,0 +1,123 @@
+{
+  "skill": "video-transcribe",
+  "cases": [
+    {
+      "type": "should_trigger",
+      "prompt": "get me the transcript of https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    },
+    {
+      "type": "should_trigger",
+      "prompt": "transcribe this: ~/Downloads/standup-2026-08-14.mp4"
+    },
+    {
+      "type": "should_trigger",
+      "prompt": "what did they actually say in this talk? https://youtu.be/xvFZjo5PgG0"
+    },
+    {
+      "type": "should_trigger",
+      "prompt": "pull the captions out of this video and save them to a file"
+    },
+    {
+      "type": "should_trigger",
+      "prompt": "i need the subtitles as plain text with timestamps"
+    },
+    {
+      "type": "should_trigger",
+      "prompt": "can u transcribe interview.mov"
+    },
+    {
+      "type": "should_trigger",
+      "prompt": "speech to text on this mp4 pls"
+    },
+    {
+      "type": "should_trigger",
+      "prompt": "does this video have captions? if yes grab them, if not run whisper on it"
+    },
+    {
+      "type": "should_trigger",
+      "prompt": "extract the spoken content from this recording so i can grep it"
+    },
+    {
+      "type": "should_trigger",
+      "prompt": "grab the timestamped transcript for that youtube link i sent"
+    },
+    {
+      "type": "should_not_trigger",
+      "prompt": "turn this video into a markdown knowledge base"
+    },
+    {
+      "type": "should_not_trigger",
+      "prompt": "summarize this video with screenshots"
+    },
+    {
+      "type": "should_not_trigger",
+      "prompt": "pull the slides out of this conference talk"
+    },
+    {
+      "type": "should_not_trigger",
+      "prompt": "what's on screen at 4:20 in this video?"
+    },
+    {
+      "type": "should_not_trigger",
+      "prompt": "extract the keyframes from demo.mp4"
+    },
+    {
+      "type": "should_not_trigger",
+      "prompt": "write study notes from this lecture with embedded figures"
+    },
+    {
+      "type": "should_not_trigger",
+      "prompt": "burn these subtitles into the video file"
+    },
+    {
+      "type": "should_not_trigger",
+      "prompt": "translate my existing subtitles.srt into Spanish"
+    },
+    {
+      "type": "should_not_trigger",
+      "prompt": "convert this mp4 to an mp3"
+    },
+    {
+      "type": "should_not_trigger",
+      "prompt": "clean up the grammar in this transcript I already pasted"
+    },
+    {
+      "type": "quality",
+      "prompt": "get the transcript for https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      "expected_behavior": [
+        "checks for yt-dlp before running it and prints the exact install command if missing, instead of failing with a bare command-not-found",
+        "tries manual/creator subtitles before auto-generated captions, and never silently accepts an auto-translation from a different source language",
+        "writes transcript.json with integer millisecond start/end per segment plus metadata.json, rather than dumping raw VTT as the deliverable",
+        "reports a deterministic quality verdict (pass/warning/fail with reason codes) computed without calling a model"
+      ]
+    },
+    {
+      "type": "quality",
+      "prompt": "transcribe ~/Videos/team-demo.mp4 — I don't think it has captions",
+      "expected_behavior": [
+        "detects the local-file input and skips all caption/network paths, going straight to local ASR",
+        "extracts mono 16 kHz audio before transcription instead of feeding the raw mp4 to the model",
+        "enables voice-activity detection or otherwise addresses Whisper's silence-hallucination failure, and says which backend and model size it chose",
+        "still emits transcript.json and a quality verdict in the same schema as the YouTube path"
+      ]
+    },
+    {
+      "type": "quality",
+      "prompt": "grab the transcript from this German conference talk on YouTube",
+      "expected_behavior": [
+        "resolves the video's own language rather than assuming English",
+        "selects the original-language caption track and explicitly rejects auto-translated tracks such as 'en-de' (English from German)",
+        "records which track was chosen and whether it was manual, auto-generated, or ASR in the output metadata"
+      ]
+    },
+    {
+      "type": "quality",
+      "prompt": "transcript for this youtube video please",
+      "expected_behavior": [
+        "on an HTTP 429, bot-check, or age-restriction error, exits non-zero with an actionable message naming the specific remedy rather than retrying blindly",
+        "does not leave a zero-byte or truncated transcript file behind when the download fails",
+        "surfaces the failure to the user instead of silently falling through to a lower-quality path without saying so"
+      ]
+    }
+  ]
+}

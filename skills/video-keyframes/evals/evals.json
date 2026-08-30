@@ -1,0 +1,64 @@
+{
+  "skill": "video-keyframes",
+  "cases": [
+    { "type": "should_trigger", "prompt": "pull the slides out of this conference talk: https://youtu.be/xvFZjo5PgG0" },
+    { "type": "should_trigger", "prompt": "extract the keyframes from demo.mp4" },
+    { "type": "should_trigger", "prompt": "what's on screen at 4:20 in this video?" },
+    { "type": "should_trigger", "prompt": "i need screenshots of every slide in this deck recording" },
+    { "type": "should_trigger", "prompt": "grab stills at each scene change and OCR them" },
+    { "type": "should_trigger", "prompt": "screenshot the terminal commands he types in this screencast" },
+    { "type": "should_trigger", "prompt": "can u get the frames where the diagram changes" },
+    { "type": "should_trigger", "prompt": "read the on-screen text from this tutorial video" },
+    { "type": "should_trigger", "prompt": "sample some frames from this mp4 between 2:00 and 3:30" },
+    { "type": "should_trigger", "prompt": "what code is visible in the editor during this demo" },
+
+    { "type": "should_not_trigger", "prompt": "get me the transcript of this youtube video" },
+    { "type": "should_not_trigger", "prompt": "transcribe interview.mov" },
+    { "type": "should_not_trigger", "prompt": "turn this video into a markdown knowledge base" },
+    { "type": "should_not_trigger", "prompt": "summarize this talk into study notes with screenshots" },
+    { "type": "should_not_trigger", "prompt": "what did the speaker say about retrieval at 12:30" },
+    { "type": "should_not_trigger", "prompt": "make a thumbnail image for my youtube upload" },
+    { "type": "should_not_trigger", "prompt": "trim this video to the first 30 seconds" },
+    { "type": "should_not_trigger", "prompt": "crop and resize these png files in my assets folder" },
+    { "type": "should_not_trigger", "prompt": "OCR this scanned PDF invoice" },
+    { "type": "should_not_trigger", "prompt": "convert this video into a gif" },
+
+    {
+      "type": "quality",
+      "prompt": "extract the slides from this recorded presentation: talk.mp4",
+      "expected_behavior": [
+        "calibrates the scene-detection threshold from sampled frames instead of hardcoding one value, and reports the threshold it chose",
+        "uses -fps_mode vfr (probing ffmpeg for support rather than assuming) and extracts frames and their timestamps in a single decode",
+        "deduplicates near-identical frames so a static slide does not produce dozens of copies",
+        "writes timeline.json with per-shot time ranges and keyframe paths, not just a folder of loose images"
+      ]
+    },
+    {
+      "type": "quality",
+      "prompt": "get frames from this screencast — it's mostly a static terminal so scene detection probably won't fire",
+      "expected_behavior": [
+        "detects that scene detection returned too few frames and falls back to fixed-interval sampling rather than returning a nearly empty result",
+        "reports which strategy actually produced the frames so the user is not misled about coverage",
+        "keeps the first frame of the video, which scene detection alone never emits"
+      ]
+    },
+    {
+      "type": "quality",
+      "prompt": "what's on screen between 6:00 and 6:30 of this video?",
+      "expected_behavior": [
+        "samples that window densely instead of re-processing the whole video",
+        "accepts multiple timestamps in one invocation rather than looping one ffmpeg call per frame",
+        "returns frame paths with their real timestamps so the caller can cite them"
+      ]
+    },
+    {
+      "type": "quality",
+      "prompt": "extract slides and OCR them from this 90 minute lecture",
+      "expected_behavior": [
+        "applies a frame budget so a long video cannot produce an unbounded number of images",
+        "runs OCR only on the frames it kept, and tolerates tesseract being absent by degrading to frames-without-OCR instead of failing the whole run",
+        "warns that a UI flow whose only change is colour may be collapsed by perceptual-hash dedup, or pins evenly spaced frames to prevent it"
+      ]
+    }
+  ]
+}
