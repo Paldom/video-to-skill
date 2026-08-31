@@ -16,9 +16,11 @@ Usage:
 Perceptual hashing and calibration use ffmpeg only — no Python image libraries.
 Errors go to stderr as {"error","message","fix"} and exit 1.
 """
+
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import re
 import shutil
@@ -26,15 +28,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-HASH_W, HASH_H = 9, 8          # dHash: 9x8 gray -> 64 bits of adjacent-pixel deltas
-DEDUP_HAMMING = 6              # keep a frame only if it differs by more than this
+HASH_W, HASH_H = 9, 8  # dHash: 9x8 gray -> 64 bits of adjacent-pixel deltas
+DEDUP_HAMMING = 6  # keep a frame only if it differs by more than this
 FRAME_CAP = 100
 MAX_FPS = 2.0
-MIN_THRESHOLD = 0.004          # low enough for light slide decks (see threshold_from_scores)
-MAX_THRESHOLD = 1.0            # ffmpeg scene scores are in [0,1]
+MIN_THRESHOLD = 0.004  # low enough for light slide decks (see threshold_from_scores)
+MAX_THRESHOLD = 1.0  # ffmpeg scene scores are in [0,1]
 DEFAULT_THRESHOLD = 0.05
-MAX_UNOBSERVED_S = 120.0       # a stretch longer than this with no frame is a blind spot
-PIN_COUNT = 8                  # evenly spaced frames that dedup may never drop
+MAX_UNOBSERVED_S = 120.0  # a stretch longer than this with no frame is a blind spot
+PIN_COUNT = 8  # evenly spaced frames that dedup may never drop
 PTS_RE = re.compile(r"pts_time:(\d+\.?\d*)")
 SCORE_RE = re.compile(r"lavfi\.scene_score=([0-9.eE+-]+)")
 
@@ -90,13 +92,19 @@ def vfr_args(ffmpeg: str) -> list[str]:
 
 def probe_duration(path: str) -> float:
     need("ffprobe", "Install ffmpeg (which ships ffprobe): `brew install ffmpeg`.")
-    out = run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
-               "-of", "csv=p=0", path]).stdout.decode().strip()
+    out = (
+        run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path])
+        .stdout.decode()
+        .strip()
+    )
     try:
         return float(out)
     except ValueError:
-        die("probe_failed", f"ffprobe could not read a duration from {path}.",
-            "Confirm the file is a playable video (`ffprobe <file>`).")
+        die(
+            "probe_failed",
+            f"ffprobe could not read a duration from {path}.",
+            "Confirm the file is a playable video (`ffprobe <file>`).",
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -122,30 +130,65 @@ def hash_images(ffmpeg: str, paths: list[Path]) -> list[int]:
         return []
     listing = "\n".join(f"file '{p.resolve()}'" for p in paths)
     p = subprocess.run(
-        [ffmpeg, "-hide_banner", "-loglevel", "error", "-f", "concat", "-safe", "0",
-         "-i", "-", "-vf", f"scale={HASH_W}:{HASH_H},format=gray",
-         "-f", "rawvideo", "-pix_fmt", "gray", "-"],
-        input=listing.encode(), capture_output=True)
+        [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            "-",
+            "-vf",
+            f"scale={HASH_W}:{HASH_H},format=gray",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "gray",
+            "-",
+        ],
+        input=listing.encode(),
+        capture_output=True,
+    )
     size = HASH_W * HASH_H
     data = p.stdout
     if len(data) < size * len(paths):
         # concat demuxer can refuse odd inputs; fall back to one call per frame
         return [hash_one(ffmpeg, q) for q in paths]
-    return [dhash_bits(data[i * size:(i + 1) * size]) for i in range(len(paths))]
+    return [dhash_bits(data[i * size : (i + 1) * size]) for i in range(len(paths))]
 
 
 def hash_one(ffmpeg: str, path: Path) -> int:
-    p = run([ffmpeg, "-hide_banner", "-loglevel", "error", "-i", str(path),
-             "-vf", f"scale={HASH_W}:{HASH_H},format=gray", "-frames:v", "1",
-             "-f", "rawvideo", "-pix_fmt", "gray", "-"])
+    p = run(
+        [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            str(path),
+            "-vf",
+            f"scale={HASH_W}:{HASH_H},format=gray",
+            "-frames:v",
+            "1",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "gray",
+            "-",
+        ]
+    )
     return dhash_bits(p.stdout) if len(p.stdout) >= HASH_W * HASH_H else 0
 
 
 # --------------------------------------------------------------------------- #
 # threshold calibration
 # --------------------------------------------------------------------------- #
-def collect_scene_scores(ffmpeg: str, path: str, start: float | None,
-                         end: float | None) -> list[float]:
+def collect_scene_scores(
+    ffmpeg: str, path: str, start: float | None, end: float | None
+) -> list[float]:
     """Measure this video's ACTUAL scene-score distribution, cheaply.
 
     Downscaling to 160px makes a full decode fast (a 14 s clip costs ~0.06 s)
@@ -154,9 +197,22 @@ def collect_scene_scores(ffmpeg: str, path: str, start: float | None,
     """
     pre = ["-ss", f"{start}"] if start is not None else []
     dur = ["-t", f"{end - (start or 0)}"] if end is not None else []
-    p = run([ffmpeg, "-hide_banner", *pre, "-i", path, *dur,
-             "-vf", "scale=160:-2,select='gt(scene,0)',metadata=print",
-             "-an", "-f", "null", "-"])
+    p = run(
+        [
+            ffmpeg,
+            "-hide_banner",
+            *pre,
+            "-i",
+            path,
+            *dur,
+            "-vf",
+            "scale=160:-2,select='gt(scene,0)',metadata=print",
+            "-an",
+            "-f",
+            "null",
+            "-",
+        ]
+    )
     return [float(m) for m in SCORE_RE.findall(p.stderr.decode("utf-8", "replace"))]
 
 
@@ -205,8 +261,9 @@ def frame_budget(duration: float, cap: int = FRAME_CAP) -> int:
 # --------------------------------------------------------------------------- #
 # extraction
 # --------------------------------------------------------------------------- #
-def scene_extract(ffmpeg: str, path: str, out: Path, thr: float,
-                  start: float | None, end: float | None) -> list[tuple[float, Path]]:
+def scene_extract(
+    ffmpeg: str, path: str, out: Path, thr: float, start: float | None, end: float | None
+) -> list[tuple[float, Path]]:
     """One decode: writes JPEGs and prints their pts_time to stderr.
 
     `eq(n,0)` keeps the opening frame — scene detection never fires on frame 0,
@@ -215,15 +272,26 @@ def scene_extract(ffmpeg: str, path: str, out: Path, thr: float,
     out.mkdir(parents=True, exist_ok=True)
     pre = ["-ss", f"{start}"] if start is not None else []
     dur = ["-t", f"{end - (start or 0)}"] if end is not None else []
-    cmd = [ffmpeg, "-hide_banner", *pre, "-i", path, *dur,
-           "-vf", f"select='eq(n\\,0)+gt(scene\\,{thr})',showinfo",
-           *vfr_args(ffmpeg), "-q:v", "3", str(out / "scene_%04d.jpg")]
+    cmd = [
+        ffmpeg,
+        "-hide_banner",
+        *pre,
+        "-i",
+        path,
+        *dur,
+        "-vf",
+        f"select='eq(n\\,0)+gt(scene\\,{thr})',showinfo",
+        *vfr_args(ffmpeg),
+        "-q:v",
+        "3",
+        str(out / "scene_%04d.jpg"),
+    ]
     p = run(cmd)
     stderr = p.stderr.decode("utf-8", "replace")
     times = [float(m) for m in PTS_RE.findall(stderr)]
     files = sorted(out.glob("scene_*.jpg"))
     off = start or 0.0
-    return [(t + off, f) for t, f in zip(times, files)]
+    return [(t + off, f) for t, f in zip(times, files, strict=False)]
 
 
 def scene_coverage_poor(cands: list[tuple[float, Path]], lo: float, hi: float) -> bool:
@@ -236,11 +304,18 @@ def scene_coverage_poor(cands: list[tuple[float, Path]], lo: float, hi: float) -
     if len(cands) < 2:
         return True
     marks = [lo] + [t for t, _ in cands] + [hi]
-    return max(b - a for a, b in zip(marks, marks[1:])) > MAX_UNOBSERVED_S
+    return max(b - a for a, b in itertools.pairwise(marks)) > MAX_UNOBSERVED_S
 
 
-def interval_extract(ffmpeg: str, path: str, out: Path, duration: float, target: int,
-                     start: float | None, end: float | None) -> list[tuple[float, Path]]:
+def interval_extract(
+    ffmpeg: str,
+    path: str,
+    out: Path,
+    duration: float,
+    target: int,
+    start: float | None,
+    end: float | None,
+) -> list[tuple[float, Path]]:
     """Fallback for near-static screencasts, where scene detection barely fires."""
     lo = start or 0.0
     hi = end if end is not None else duration
@@ -252,8 +327,24 @@ def interval_extract(ffmpeg: str, path: str, out: Path, duration: float, target:
     idx = 0
     while t < hi and idx < target:
         dst = out / f"iv_{idx:04d}.jpg"
-        p = run([ffmpeg, "-hide_banner", "-loglevel", "error", "-ss", f"{t}", "-i", path,
-                 "-frames:v", "1", "-q:v", "3", "-y", str(dst)])
+        p = run(
+            [
+                ffmpeg,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-ss",
+                f"{t}",
+                "-i",
+                path,
+                "-frames:v",
+                "1",
+                "-q:v",
+                "3",
+                "-y",
+                str(dst),
+            ]
+        )
         if p.returncode == 0 and dst.exists():
             picked.append((t, dst))
         t += step
@@ -261,8 +352,9 @@ def interval_extract(ffmpeg: str, path: str, out: Path, duration: float, target:
     return picked
 
 
-def dedupe(ffmpeg: str, cands: list[tuple[float, Path]], pinned: set[int]
-           ) -> tuple[list[tuple[float, Path, int]], list[Path]]:
+def dedupe(
+    ffmpeg: str, cands: list[tuple[float, Path]], pinned: set[int]
+) -> tuple[list[tuple[float, Path, int]], list[Path]]:
     """Drop near-identical frames. Pinned indices survive regardless.
 
     dHash is luminance-only: a button turning red or a total turning green is
@@ -273,8 +365,12 @@ def dedupe(ffmpeg: str, cands: list[tuple[float, Path]], pinned: set[int]
     kept: list[tuple[float, Path, int]] = []
     kept_hashes: list[int] = []
     dropped: list[Path] = []
-    for i, ((t, path), h) in enumerate(zip(cands, hashes)):
-        if i in pinned or not kept_hashes or all(hamming(h, k) > DEDUP_HAMMING for k in kept_hashes):
+    for i, ((t, path), h) in enumerate(zip(cands, hashes, strict=False)):
+        if (
+            i in pinned
+            or not kept_hashes
+            or all(hamming(h, k) > DEDUP_HAMMING for k in kept_hashes)
+        ):
             motion = min((hamming(h, k) for k in kept_hashes), default=64)
             kept.append((t, path, motion))
             kept_hashes.append(h)
@@ -283,8 +379,15 @@ def dedupe(ffmpeg: str, cands: list[tuple[float, Path]], pinned: set[int]
     return kept, dropped
 
 
-def fill_gaps(ffmpeg: str, path: str, out: Path, kept: list[tuple[float, Path, int]],
-              lo: float, hi: float, budget: int) -> list[tuple[float, Path, int]]:
+def fill_gaps(
+    ffmpeg: str,
+    path: str,
+    out: Path,
+    kept: list[tuple[float, Path, int]],
+    lo: float,
+    hi: float,
+    budget: int,
+) -> list[tuple[float, Path, int]]:
     """Re-sample stretches that DEDUP emptied.
 
     Coverage is checked before dedup, but dedup is what decides the final set:
@@ -301,7 +404,7 @@ def fill_gaps(ffmpeg: str, path: str, out: Path, kept: list[tuple[float, Path, i
     kept = sorted(kept, key=lambda k: k[0])
     marks = [lo] + [t for t, _, _ in kept] + [hi]
     wanted: list[float] = []
-    for a, b in zip(marks, marks[1:]):
+    for a, b in itertools.pairwise(marks):
         span = b - a
         if span <= MAX_UNOBSERVED_S:
             continue
@@ -313,13 +416,31 @@ def fill_gaps(ffmpeg: str, path: str, out: Path, kept: list[tuple[float, Path, i
     added = []
     for t in wanted[:room]:
         dst = out / f"gap_{int(t * 1000):08d}.jpg"
-        p = run([ffmpeg, "-hide_banner", "-loglevel", "error", "-ss", f"{t}", "-i", path,
-                 "-frames:v", "1", "-q:v", "3", "-y", str(dst)])
+        p = run(
+            [
+                ffmpeg,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-ss",
+                f"{t}",
+                "-i",
+                path,
+                "-frames:v",
+                "1",
+                "-q:v",
+                "3",
+                "-y",
+                str(dst),
+            ]
+        )
         if p.returncode == 0 and dst.exists():
-            added.append((t, dst, -1))       # motion -1: sampled, not scene-detected
+            added.append((t, dst, -1))  # motion -1: sampled, not scene-detected
     if added:
-        sys.stderr.write(f"[coverage] dedup left {len(wanted)} stretch(es) over "
-                         f"{MAX_UNOBSERVED_S:.0f}s unobserved; added {len(added)} sampled frame(s)\n")
+        sys.stderr.write(
+            f"[coverage] dedup left {len(wanted)} stretch(es) over "
+            f"{MAX_UNOBSERVED_S:.0f}s unobserved; added {len(added)} sampled frame(s)\n"
+        )
     return sorted(kept + added, key=lambda k: k[0])
 
 
@@ -327,8 +448,10 @@ def ocr_frames(frames: list[Path]) -> dict[str, str]:
     """OCR is best-effort: a missing tesseract degrades to frames-without-text,
     it never sinks the run."""
     if not shutil.which("tesseract"):
-        sys.stderr.write("[ocr] tesseract not found — continuing without on-screen text. "
-                         "Install with `brew install tesseract` to enable it.\n")
+        sys.stderr.write(
+            "[ocr] tesseract not found — continuing without on-screen text. "
+            "Install with `brew install tesseract` to enable it.\n"
+        )
         return {}
     texts = {}
     for f in frames:
@@ -343,8 +466,11 @@ def ocr_frames(frames: list[Path]) -> dict[str, str]:
 def transcript_span(segments: list[dict], start_ms: int, end_ms: int) -> str:
     """The speech covering a shot. This is what makes a figure caption free:
     no per-frame vision call is needed to say what a slide is about."""
-    hits = [s["text"] for s in segments
-            if s.get("end_ms", 0) > start_ms and s.get("start_ms", 0) < end_ms]
+    hits = [
+        s["text"]
+        for s in segments
+        if s.get("end_ms", 0) > start_ms and s.get("start_ms", 0) < end_ms
+    ]
     return " ".join(" ".join(hits).split())
 
 
@@ -353,9 +479,12 @@ def cmd_extract(args) -> int:
     ffmpeg = need("ffmpeg", "Install it: `brew install ffmpeg` or `sudo apt install ffmpeg`.")
     src = Path(args.source).expanduser()
     if not src.is_file():
-        die("not_found", f"{args.source} is not a file.",
+        die(
+            "not_found",
+            f"{args.source} is not a file.",
             "video-keyframes needs a LOCAL media file. Download the video first "
-            "(e.g. `yt-dlp -o video.mp4 <url>`), then point this script at it.")
+            "(e.g. `yt-dlp -o video.mp4 <url>`), then point this script at it.",
+        )
     out: Path = args.out
     tl = out / "timeline.json"
     if tl.exists() and not args.force:
@@ -373,8 +502,10 @@ def cmd_extract(args) -> int:
     cands = scene_extract(ffmpeg, str(src), frames_dir, thr, start, end)
     strategy = "scene"
     if scene_coverage_poor(cands, start or 0.0, end or duration):
-        sys.stderr.write(f"[strategy] scene detection left long unobserved stretches at "
-                         f"threshold {thr} ({len(cands)} frame(s)); adding interval sampling\n")
+        sys.stderr.write(
+            f"[strategy] scene detection left long unobserved stretches at "
+            f"threshold {thr} ({len(cands)} frame(s)); adding interval sampling\n"
+        )
         for _, f in cands:
             f.unlink(missing_ok=True)
         cands = interval_extract(ffmpeg, str(src), frames_dir, duration, target, start, end)
@@ -408,24 +539,39 @@ def cmd_extract(args) -> int:
     shots = []
     for i, (t, path, motion) in enumerate(kept):
         nxt = kept[i + 1][0] if i + 1 < len(kept) else (end or duration)
-        shots.append({
-            "index": i,
-            "start_ms": int(t * 1000),
-            "end_ms": int(nxt * 1000),
-            "start": fmt_time(t),
-            "frame": str(path.relative_to(out)),
-            "ocr": ocr.get(path.name, ""),
-            "motion": motion,
-            "speech": transcript_span(segments, int(t * 1000), int(nxt * 1000)),
-        })
+        shots.append(
+            {
+                "index": i,
+                "start_ms": int(t * 1000),
+                "end_ms": int(nxt * 1000),
+                "start": fmt_time(t),
+                "frame": str(path.relative_to(out)),
+                "ocr": ocr.get(path.name, ""),
+                "motion": motion,
+                "speech": transcript_span(segments, int(t * 1000), int(nxt * 1000)),
+            }
+        )
 
-    digest = {"source": str(src), "duration_s": duration, "strategy": strategy,
-              "scene_threshold": thr, "calibration_confidence": round(confidence, 3),
-              "frames_extracted": len(cands), "frames_kept": len(kept),
-              "frame_budget": target, "ocr": bool(ocr), "shots": shots}
+    digest = {
+        "source": str(src),
+        "duration_s": duration,
+        "strategy": strategy,
+        "scene_threshold": thr,
+        "calibration_confidence": round(confidence, 3),
+        "frames_extracted": len(cands),
+        "frames_kept": len(kept),
+        "frame_budget": target,
+        "ocr": bool(ocr),
+        "shots": shots,
+    }
     tl.write_text(json.dumps(digest, indent=2, ensure_ascii=False))
-    print(json.dumps({k: v for k, v in digest.items() if k != "shots"} |
-                     {"timeline": str(tl), "shots": len(shots)}, indent=2))
+    print(
+        json.dumps(
+            {k: v for k, v in digest.items() if k != "shots"}
+            | {"timeline": str(tl), "shots": len(shots)},
+            indent=2,
+        )
+    )
     return 0
 
 
@@ -437,13 +583,32 @@ def cmd_frame_at(args) -> int:
     for raw in args.timestamps:
         t = parse_time(raw)
         dst = out / "frames" / f"at_{int(t * 1000):08d}.jpg"
-        p = run([ffmpeg, "-hide_banner", "-loglevel", "error", "-ss", f"{t}",
-                 "-i", args.source, "-frames:v", "1", "-q:v", "2", "-y", str(dst)])
+        p = run(
+            [
+                ffmpeg,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-ss",
+                f"{t}",
+                "-i",
+                args.source,
+                "-frames:v",
+                "1",
+                "-q:v",
+                "2",
+                "-y",
+                str(dst),
+            ]
+        )
         if p.returncode == 0 and dst.exists():
             results.append({"t": fmt_time(t), "start_ms": int(t * 1000), "frame": str(dst)})
     if not results:
-        die("frame_extract_failed", "No frame could be extracted at those timestamps.",
-            "Check the timestamps fall inside the video's duration.")
+        die(
+            "frame_extract_failed",
+            "No frame could be extracted at those timestamps.",
+            "Check the timestamps fall inside the video's duration.",
+        )
     print(json.dumps(results, indent=2))
     return 0
 
@@ -454,15 +619,47 @@ def cmd_clip(args) -> int:
     out: Path = args.out
     d = out / "frames"
     d.mkdir(parents=True, exist_ok=True)
-    p = run([ffmpeg, "-hide_banner", "-loglevel", "error", "-ss", f"{t0}", "-i", args.source,
-             "-t", f"{max(0.1, t1 - t0)}", "-vf", f"fps={args.fps}", "-q:v", "3",
-             "-y", str(d / f"clip_{int(t0)}_%03d.jpg")])
+    p = run(
+        [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-ss",
+            f"{t0}",
+            "-i",
+            args.source,
+            "-t",
+            f"{max(0.1, t1 - t0)}",
+            "-vf",
+            f"fps={args.fps}",
+            "-q:v",
+            "3",
+            "-y",
+            str(d / f"clip_{int(t0)}_%03d.jpg"),
+        ]
+    )
     files = sorted(d.glob(f"clip_{int(t0)}_*.jpg"))
     if p.returncode != 0 or not files:
-        die("clip_failed", "Could not sample that range.", "Check t0 < t1 and both are inside the video.")
+        die(
+            "clip_failed",
+            "Could not sample that range.",
+            "Check t0 < t1 and both are inside the video.",
+        )
     step = 1.0 / args.fps
-    print(json.dumps([{"t": fmt_time(t0 + i * step), "start_ms": int((t0 + i * step) * 1000),
-                       "frame": str(f)} for i, f in enumerate(files)], indent=2))
+    print(
+        json.dumps(
+            [
+                {
+                    "t": fmt_time(t0 + i * step),
+                    "start_ms": int((t0 + i * step) * 1000),
+                    "frame": str(f),
+                }
+                for i, f in enumerate(files)
+            ],
+            indent=2,
+        )
+    )
     return 0
 
 
@@ -501,14 +698,15 @@ def self_check() -> int:
     # Coverage, not frame count, decides the interval fallback.
     short3 = [(0.0, Path("a")), (4.7, Path("b")), (9.4, Path("c"))]
     assert not scene_coverage_poor(short3, 0.0, 14.1), "3 frames fully cover a 14s clip"
-    assert scene_coverage_poor([(0.0, Path("a")), (5.0, Path("b"))], 0.0, 7200.0), \
+    assert scene_coverage_poor([(0.0, Path("a")), (5.0, Path("b"))], 0.0, 7200.0), (
         "2 frames in a 2h lecture is a blind spot"
+    )
     assert scene_coverage_poor([(0.0, Path("a"))], 0.0, 10.0), "one frame is never enough"
 
     # Gap-fill targets: a 280s hole under a 120s limit needs 2 interior samples.
     marks = [0.0, 207.0, 487.0, 816.0]
     interior = []
-    for a, b in zip(marks, marks[1:]):
+    for a, b in itertools.pairwise(marks):
         span = b - a
         if span > MAX_UNOBSERVED_S:
             n = int(span // MAX_UNOBSERVED_S)
@@ -516,11 +714,13 @@ def self_check() -> int:
             interior.extend(a + step * (i + 1) for i in range(n))
     assert len(interior) == 5, interior
     filled = sorted(marks + interior)
-    assert max(b - a for a, b in zip(filled, filled[1:])) <= MAX_UNOBSERVED_S
+    assert max(b - a for a, b in itertools.pairwise(filled)) <= MAX_UNOBSERVED_S
 
-    segs = [{"start_ms": 0, "end_ms": 2000, "text": "hello"},
-            {"start_ms": 2000, "end_ms": 4000, "text": "world"},
-            {"start_ms": 9000, "end_ms": 9500, "text": "later"}]
+    segs = [
+        {"start_ms": 0, "end_ms": 2000, "text": "hello"},
+        {"start_ms": 2000, "end_ms": 4000, "text": "world"},
+        {"start_ms": 9000, "end_ms": 9500, "text": "later"},
+    ]
     assert transcript_span(segs, 0, 3000) == "hello world"
     assert transcript_span(segs, 4000, 5000) == ""
     print("self-check OK")

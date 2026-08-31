@@ -1,7 +1,7 @@
 {
   "name": "video-to-skill",
   "description": "Agent Skills that turn a YouTube video or local MP4 into a structured markdown knowledge base: transcript retrieval, audio transcription, slide and frame capture, chaptering, and distillation into linked notes.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": {
     "name": "Paldom",
     "url": "https://github.com/Paldom"

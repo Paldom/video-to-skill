@@ -1,6 +1,6 @@
 ---
 name: video-transcribe
-description: Fetches a timestamped transcript for a YouTube URL or local video file - creator captions, then original-language auto-captions, then local Whisper - with a quality verdict. Use when the user asks to transcribe a video, get its transcript, captions or subtitles, run speech-to-text, or what was said in it. Not for writing notes, extracting frames, or editing an existing subtitle file.
+description: Fetches a timestamped transcript for a YouTube URL, talk or local video - creator captions, then auto-captions, then local Whisper - with a quality verdict. Use when the user asks to transcribe a video, get its transcript, captions or subtitles, run speech-to-text, or what someone said or actually says in a talk. Not for writing notes, extracting frames, or editing a subtitle file.
 license: MIT
 argument-hint: <video-url-or-file>
 ---

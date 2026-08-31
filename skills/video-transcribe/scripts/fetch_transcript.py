@@ -14,9 +14,11 @@ Usage:
 
 Errors go to stderr as one JSON object {"error","message","fix"} and exit 1.
 """
+
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import os
 import platform
@@ -26,8 +28,22 @@ import subprocess
 import sys
 from pathlib import Path
 
-MEDIA_EXT = {".mp4", ".mkv", ".mov", ".webm", ".avi", ".m4v", ".flv",
-             ".mp3", ".m4a", ".wav", ".aac", ".ogg", ".opus", ".flac"}
+MEDIA_EXT = {
+    ".mp4",
+    ".mkv",
+    ".mov",
+    ".webm",
+    ".avi",
+    ".m4v",
+    ".flv",
+    ".mp3",
+    ".m4a",
+    ".wav",
+    ".aac",
+    ".ogg",
+    ".opus",
+    ".flac",
+}
 # Region/script subtags look like "US", "BR", "Hans" — a lowercase 2-3 letter
 # suffix that differs from the base is a SOURCE language, i.e. a translation.
 REGION_RE = re.compile(r"^[A-Z]{2}$|^[A-Z][a-z]{3}$|^[0-9]{3}$")
@@ -91,7 +107,7 @@ def infer_base_lang(info: dict, want_lang: str) -> str:
     if declared:
         return declared.split("-")[0].lower()
     sources: dict[str, int] = {}
-    for code in (info.get("automatic_captions") or {}):
+    for code in info.get("automatic_captions") or {}:
         m = TRANSLATION_RE.match(code)
         if m and m.group(2) != m.group(1):
             sources[m.group(2)] = sources.get(m.group(2), 0) + 1
@@ -170,22 +186,23 @@ def parse_vtt(text: str) -> list[dict]:
     that inflates YouTube auto-captions 2-3x."""
     segs: list[dict] = []
     for block in re.split(r"\n\s*\n", text):
-        lines = [l for l in block.splitlines() if l.strip()]
+        lines = [ln for ln in block.splitlines() if ln.strip()]
         if not lines:
             continue
-        cue = next((l for l in lines if "-->" in l), None)
+        cue = next((ln for ln in lines if "-->" in ln), None)
         if not cue:
             continue
         start_s, _, end_s = cue.partition("-->")
         m1, m2 = TS_RE.search(start_s), TS_RE.search(end_s)
         if not (m1 and m2):
             continue
-        body = " ".join(lines[lines.index(cue) + 1:])
+        body = " ".join(lines[lines.index(cue) + 1 :])
         body = TAG_RE.sub("", body).strip()
         if not body:
             continue
-        segs.append({"start_ms": _vtt_ms(m1.group(0)),
-                     "end_ms": _vtt_ms(m2.group(0)), "text": body})
+        segs.append(
+            {"start_ms": _vtt_ms(m1.group(0)), "end_ms": _vtt_ms(m2.group(0)), "text": body}
+        )
     return dedupe_rolling(segs)
 
 
@@ -199,9 +216,13 @@ def parse_json3(text: str) -> list[dict]:
         if not body or body == "\n":
             continue
         start = int(ev["tStartMs"])
-        segs.append({"start_ms": start,
-                     "end_ms": start + int(ev.get("dDurationMs") or 0),
-                     "text": " ".join(body.split())})
+        segs.append(
+            {
+                "start_ms": start,
+                "end_ms": start + int(ev.get("dDurationMs") or 0),
+                "text": " ".join(body.split()),
+            }
+        )
     return dedupe_rolling(segs)
 
 
@@ -223,7 +244,7 @@ def dedupe_rolling(segs: list[dict]) -> list[dict]:
     three times and makes the repetition gate fire on a healthy video.
     """
     out: list[dict] = []
-    prev_raw: list[str] = []          # the PREVIOUS CUE as displayed, not as trimmed
+    prev_raw: list[str] = []  # the PREVIOUS CUE as displayed, not as trimmed
     for seg in segs:
         words = seg["text"].split()
         if not words:
@@ -231,7 +252,7 @@ def dedupe_rolling(segs: list[dict]) -> list[dict]:
         raw = words
         if prev_raw:
             k = word_overlap(prev_raw, words)
-            if k == len(words):        # nothing new in this cue
+            if k == len(words):  # nothing new in this cue
                 if out:
                     out[-1]["end_ms"] = seg["end_ms"]
                 prev_raw = raw
@@ -268,7 +289,13 @@ def assess(segs: list[dict], duration_s: float | None, kind: str) -> dict:
         fails.append("suspiciously_short")
     elif n < expected_min:
         warns.append("short_for_duration")
-    if cpm is not None and minutes and minutes >= 1 and cpm < warn_cpm and "suspiciously_short" not in fails:
+    if (
+        cpm is not None
+        and minutes
+        and minutes >= 1
+        and cpm < warn_cpm
+        and "suspiciously_short" not in fails
+    ):
         warns.append("low_characters_per_minute")
     # Needs a full window to mean anything; see repetition_ratio for thresholds.
     if n >= REP_MIN_CHARS:
@@ -287,10 +314,14 @@ def assess(segs: list[dict], duration_s: float | None, kind: str) -> dict:
     return {
         "status": "fail" if fails else ("warning" if warns else "pass"),
         "reasons": list(dict.fromkeys(fails + warns)),
-        "metrics": {"effective_chars": n, "segments": len(segs),
-                    "chars_per_minute": cpm, "repetition_ratio": round(rep, 4),
-                    "timed_coverage_ratio": round(coverage, 4) if coverage is not None else None,
-                    "max_segment_gap_ms": max_gap},
+        "metrics": {
+            "effective_chars": n,
+            "segments": len(segs),
+            "chars_per_minute": cpm,
+            "repetition_ratio": round(rep, 4),
+            "timed_coverage_ratio": round(coverage, 4) if coverage is not None else None,
+            "max_segment_gap_ms": max_gap,
+        },
     }
 
 
@@ -314,10 +345,10 @@ def repetition_ratio(effective: str) -> float:
         return 0.0
     worst = 0.0
     for i in range(0, max(1, len(effective) - REP_WINDOW + 1), REP_WINDOW):
-        chunk = effective[i:i + REP_WINDOW]
+        chunk = effective[i : i + REP_WINDOW]
         if len(chunk) < 200:
             continue
-        grams = [chunk[j:j + 4] for j in range(len(chunk) - 3)]
+        grams = [chunk[j : j + 4] for j in range(len(chunk) - 3)]
         worst = max(worst, 1.0 - (len(set(grams)) / len(grams)))
     return worst
 
@@ -327,7 +358,7 @@ def timing_metrics(segs, duration_s):
         return None, None
     total = sum(max(0, s["end_ms"] - s["start_ms"]) for s in segs)
     ordered = sorted(segs, key=lambda s: s["start_ms"])
-    gap = max((b["start_ms"] - a["end_ms"] for a, b in zip(ordered, ordered[1:])), default=0)
+    gap = max((b["start_ms"] - a["end_ms"] for a, b in itertools.pairwise(ordered)), default=0)
     return min(1.0, total / (duration_s * 1000)), max(0, gap)
 
 
@@ -336,45 +367,66 @@ def timing_metrics(segs, duration_s):
 # --------------------------------------------------------------------------- #
 def probe_metadata(url: str) -> dict:
     if not shutil.which("yt-dlp"):
-        die("missing_dependency", "yt-dlp is not installed but the input is a URL.",
-            "Install it: `uv tool install yt-dlp` (or `pipx install yt-dlp` / `brew install yt-dlp`).")
+        die(
+            "missing_dependency",
+            "yt-dlp is not installed but the input is a URL.",
+            "Install it: `uv tool install yt-dlp` (or `pipx install yt-dlp` / `brew install yt-dlp`).",
+        )
     p = run(["yt-dlp", "--dump-json", "--skip-download", "--no-playlist", url])
     if p.returncode != 0:
         diagnose_ytdlp(p.stderr)
     try:
         return json.loads(p.stdout.splitlines()[0])
     except (ValueError, IndexError):
-        die("metadata_unparseable", "yt-dlp returned no parseable JSON for this URL.",
-            "Run the same URL with `yt-dlp --dump-json` manually to see the raw failure.")
+        die(
+            "metadata_unparseable",
+            "yt-dlp returned no parseable JSON for this URL.",
+            "Run the same URL with `yt-dlp --dump-json` manually to see the raw failure.",
+        )
 
 
 def diagnose_ytdlp(stderr: str) -> None:
     low = stderr.lower()
     if "sign in to confirm" in low or "not a bot" in low:
-        die("bot_check", "YouTube served a bot check instead of the video.",
+        die(
+            "bot_check",
+            "YouTube served a bot check instead of the video.",
             "Run `yt-dlp -U` first. Then `--cookies-from-browser chrome` (export from a "
             "private window and close it; do not log out). Datacenter/VPN IPs get the "
-            "strictest treatment and no flag fixes that — use a residential connection.")
+            "strictest treatment and no flag fixes that — use a residential connection.",
+        )
     if "429" in low or "too many requests" in low:
-        die("rate_limited", "YouTube rate-limited the request (HTTP 429).",
+        die(
+            "rate_limited",
+            "YouTube rate-limited the request (HTTP 429).",
             "Wait several minutes, then retry. Install impersonation support — "
             "`uv tool install 'yt-dlp[default,curl-cffi]'` — because yt-dlp warns that "
             "without an impersonate target YouTube is far more likely to throttle. "
-            "Avoid running several extractions back to back.")
-    if "private video" in low or "members-only" in low or "age" in low and "restrict" in low:
-        die("restricted", "The video is private, members-only, or age-restricted.",
-            "Pass browser cookies via `--cookies-from-browser <browser>`, or use a local file.")
+            "Avoid running several extractions back to back.",
+        )
+    if "private video" in low or "members-only" in low or ("age" in low and "restrict" in low):
+        die(
+            "restricted",
+            "The video is private, members-only, or age-restricted.",
+            "Pass browser cookies via `--cookies-from-browser <browser>`, or use a local file.",
+        )
     if "unavailable" in low or "removed" in low:
-        die("unavailable", "The video is unavailable or has been removed.",
-            "Verify the URL opens in a browser.")
-    die("ytdlp_failed", f"yt-dlp failed: {stderr.strip()[:400]}",
-        "Run `yt-dlp -U` to update, then retry. If it persists, run the URL manually to see the full error.")
+        die(
+            "unavailable",
+            "The video is unavailable or has been removed.",
+            "Verify the URL opens in a browser.",
+        )
+    die(
+        "ytdlp_failed",
+        f"yt-dlp failed: {stderr.strip()[:400]}",
+        "Run `yt-dlp -U` to update, then retry. If it persists, run the URL manually to see the full error.",
+    )
 
 
 def error_lines(stderr: str) -> str:
     """yt-dlp prints chatty WARNINGs before the real ERROR. Truncating stderr
     from the front hides the actual cause, so pull the ERROR lines out."""
-    lines = [l for l in stderr.splitlines() if l.startswith("ERROR")]
+    lines = [ln for ln in stderr.splitlines() if ln.startswith("ERROR")]
     return " | ".join(lines) if lines else stderr.strip()[-300:]
 
 
@@ -390,17 +442,28 @@ def fetch_captions(url: str, kind: str, lang: str, ext: str, out: Path) -> tuple
     why a lower rung was used.
     """
     stem = out / "captions"
-    cmd = ["yt-dlp", "--skip-download", "--no-playlist",
-           "--write-subs" if kind == "manual" else "--write-auto-subs",
-           "--sub-langs", lang, "--sub-format", f"{ext}/vtt",
-           "-o", str(stem), url]
+    cmd = [
+        "yt-dlp",
+        "--skip-download",
+        "--no-playlist",
+        "--write-subs" if kind == "manual" else "--write-auto-subs",
+        "--sub-langs",
+        lang,
+        "--sub-format",
+        f"{ext}/vtt",
+        "-o",
+        str(stem),
+        url,
+    ]
     p = run(cmd)
     hits = [h for h in sorted(out.glob("captions*")) if h.stat().st_size > 0]
     if not hits:
-        for stray in out.glob("captions*"):   # never leave a 0-byte artefact
+        for stray in out.glob("captions*"):  # never leave a 0-byte artefact
             stray.unlink(missing_ok=True)
         detail = error_lines(p.stderr)
-        reason = "rate_limited" if re.search(r"429|too many requests", detail, re.I) else "unavailable"
+        reason = (
+            "rate_limited" if re.search(r"429|too many requests", detail, re.I) else "unavailable"
+        )
         sys.stderr.write(f"[captions] {kind}/{lang} {reason}: {detail}\n")
         return None, f"{reason}: {detail[:200]}"
     return hits[0].read_text(encoding="utf-8", errors="replace"), ""
@@ -408,14 +471,36 @@ def fetch_captions(url: str, kind: str, lang: str, ext: str, out: Path) -> tuple
 
 def extract_audio(src: str, out: Path) -> Path:
     if not shutil.which("ffmpeg"):
-        die("missing_dependency", "ffmpeg is required to extract audio for ASR.",
-            "Install it: `brew install ffmpeg` (macOS) or `sudo apt install ffmpeg`.")
+        die(
+            "missing_dependency",
+            "ffmpeg is required to extract audio for ASR.",
+            "Install it: `brew install ffmpeg` (macOS) or `sudo apt install ffmpeg`.",
+        )
     wav = out / "audio.wav"
-    p = run(["ffmpeg", "-hide_banner", "-nostdin", "-y", "-i", src,
-             "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(wav)])
+    p = run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-nostdin",
+            "-y",
+            "-i",
+            src,
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            "-c:a",
+            "pcm_s16le",
+            str(wav),
+        ]
+    )
     if p.returncode != 0 or not wav.exists():
-        die("audio_extract_failed", f"ffmpeg could not extract audio: {p.stderr.strip()[-300:]}",
-            "Check the file plays, and that it has an audio track (`ffprobe <file>`).")
+        die(
+            "audio_extract_failed",
+            f"ffmpeg could not extract audio: {p.stderr.strip()[-300:]}",
+            "Check the file plays, and that it has an audio track (`ffprobe <file>`).",
+        )
     return wav
 
 
@@ -428,27 +513,37 @@ def transcribe(wav: Path, model: str) -> list[dict]:
         if segs is not None:
             return segs
     try:
-        from faster_whisper import WhisperModel  # noqa: PLC0415
+        from faster_whisper import WhisperModel
     except ImportError:
         apple = platform.system() == "Darwin" and platform.machine() == "arm64"
-        die("no_asr_backend",
+        die(
+            "no_asr_backend",
             "No caption track was available and no local ASR backend is installed.",
-            ("Install whisper.cpp for Metal acceleration: `brew install whisper-cpp` and "
-             "download a model (e.g. ggml-small.bin)." if apple else
-             "Install faster-whisper: `uv pip install faster-whisper`.")
-            + " Or re-run with --no-asr to fail fast instead of transcribing.")
+            (
+                "Install whisper.cpp for Metal acceleration: `brew install whisper-cpp` and "
+                "download a model (e.g. ggml-small.bin)."
+                if apple
+                else "Install faster-whisper: `uv pip install faster-whisper`."
+            )
+            + " Or re-run with --no-asr to fail fast instead of transcribing.",
+        )
     # vad_filter is not optional: without it Whisper invents text over silence.
     mdl = WhisperModel(model, device="auto", compute_type="int8")
     segments, _ = mdl.transcribe(str(wav), vad_filter=True, word_timestamps=False)
-    return [{"start_ms": int(s.start * 1000), "end_ms": int(s.end * 1000),
-             "text": s.text.strip()} for s in segments if s.text.strip()]
+    return [
+        {"start_ms": int(s.start * 1000), "end_ms": int(s.end * 1000), "text": s.text.strip()}
+        for s in segments
+        if s.text.strip()
+    ]
 
 
 def whisper_cpp(cli: str, wav: Path, model: str) -> list[dict] | None:
     mdl = os.environ.get("WHISPER_CPP_MODEL")
     if not mdl or not Path(mdl).is_file():
-        sys.stderr.write("[asr] whisper-cli found but WHISPER_CPP_MODEL is unset or missing; "
-                         "falling back to faster-whisper.\n")
+        sys.stderr.write(
+            "[asr] whisper-cli found but WHISPER_CPP_MODEL is unset or missing; "
+            "falling back to faster-whisper.\n"
+        )
         return None
     out = wav.with_suffix("")
     p = run([cli, "-m", mdl, "-f", str(wav), "-oj", "-of", str(out), "-np", "-nt"])
@@ -462,8 +557,9 @@ def whisper_cpp(cli: str, wav: Path, model: str) -> list[dict] | None:
         off = s.get("offsets") or {}
         txt = (s.get("text") or "").strip()
         if txt:
-            segs.append({"start_ms": int(off.get("from", 0)),
-                         "end_ms": int(off.get("to", 0)), "text": txt})
+            segs.append(
+                {"start_ms": int(off.get("from", 0)), "end_ms": int(off.get("to", 0)), "text": txt}
+            )
     return segs or None
 
 
@@ -475,11 +571,18 @@ def main() -> int:
     ap.add_argument("--lang", default="en", help="preferred language when the video declares none")
     ap.add_argument("--asr-model", default="small", help="ASR model size (default: small)")
     ap.add_argument("--no-asr", action="store_true", help="fail instead of falling back to ASR")
-    ap.add_argument("--cookies-from-browser", metavar="BROWSER",
-                    help="pass browser cookies to yt-dlp (chrome, firefox, safari, ...) — "
-                         "the documented remedy for a rate-limited or bot-checked IP")
-    ap.add_argument("--sleep-requests", type=float, metavar="SECS",
-                    help="seconds to sleep between yt-dlp requests")
+    ap.add_argument(
+        "--cookies-from-browser",
+        metavar="BROWSER",
+        help="pass browser cookies to yt-dlp (chrome, firefox, safari, ...) — "
+        "the documented remedy for a rate-limited or bot-checked IP",
+    )
+    ap.add_argument(
+        "--sleep-requests",
+        type=float,
+        metavar="SECS",
+        help="seconds to sleep between yt-dlp requests",
+    )
     ap.add_argument("--force", action="store_true", help="overwrite existing outputs")
     ap.add_argument("--self-check", action="store_true", help="run built-in assertions and exit")
     args = ap.parse_args()
@@ -498,7 +601,11 @@ def main() -> int:
     out.mkdir(parents=True, exist_ok=True)
     tpath, mpath = out / "transcript.json", out / "metadata.json"
     if tpath.exists() and not args.force:
-        die("exists", f"{tpath} already exists.", "Pass --force to overwrite, or choose another --out.")
+        die(
+            "exists",
+            f"{tpath} already exists.",
+            "Pass --force to overwrite, or choose another --out.",
+        )
 
     src = args.source
     is_url = src.startswith(("http://", "https://"))
@@ -506,13 +613,17 @@ def main() -> int:
 
     if is_url:
         info = probe_metadata(src)
-        meta = {"source": "youtube" if "youtube" in (info.get("extractor") or "").lower() else "url",
-                "video_id": info.get("id"), "title": info.get("title"),
-                "channel": info.get("channel") or info.get("uploader"),
-                "url": info.get("webpage_url") or src,
-                "duration_s": info.get("duration"), "upload_date": info.get("upload_date"),
-                "language": info.get("language"),
-                "chapters": info.get("chapters") or []}
+        meta = {
+            "source": "youtube" if "youtube" in (info.get("extractor") or "").lower() else "url",
+            "video_id": info.get("id"),
+            "title": info.get("title"),
+            "channel": info.get("channel") or info.get("uploader"),
+            "url": info.get("webpage_url") or src,
+            "duration_s": info.get("duration"),
+            "upload_date": info.get("upload_date"),
+            "language": info.get("language"),
+            "chapters": info.get("chapters") or [],
+        }
         segs, kind, track = [], None, None
         caption_failure = ""
         picked = pick_track(info, args.lang)
@@ -527,50 +638,113 @@ def main() -> int:
         meta["caption_failure"] = caption_failure
         if not segs:
             if args.no_asr:
-                die("no_captions", f"No usable caption track ({caption_failure or 'none offered'}) "
+                die(
+                    "no_captions",
+                    f"No usable caption track ({caption_failure or 'none offered'}) "
                     "and --no-asr was set.",
-                    "Re-run without --no-asr to transcribe locally, or wait out the rate limit.")
-            sys.stderr.write(f"[ladder] captions unusable ({caption_failure or 'none offered'}); "
-                             "falling back to local ASR\n")
-            p = run(["yt-dlp", "-x", "--audio-format", "wav", "--no-playlist",
-                     "-o", str(out / "audio.%(ext)s"), src])
+                    "Re-run without --no-asr to transcribe locally, or wait out the rate limit.",
+                )
+            sys.stderr.write(
+                f"[ladder] captions unusable ({caption_failure or 'none offered'}); "
+                "falling back to local ASR\n"
+            )
+            p = run(
+                [
+                    "yt-dlp",
+                    "-x",
+                    "--audio-format",
+                    "wav",
+                    "--no-playlist",
+                    "-o",
+                    str(out / "audio.%(ext)s"),
+                    src,
+                ]
+            )
             if p.returncode != 0:
                 diagnose_ytdlp(p.stderr)
             segs, kind, track = transcribe(out / "audio.wav", args.asr_model), "asr", None
     else:
         if not local.is_file():
-            die("not_found", f"{src} is neither a URL nor an existing file.",
-                "Pass a http(s) URL or a path to a local media file.")
+            die(
+                "not_found",
+                f"{src} is neither a URL nor an existing file.",
+                "Pass a http(s) URL or a path to a local media file.",
+            )
         if local.suffix.lower() not in MEDIA_EXT:
-            die("unsupported_input", f"{local.suffix} is not a recognised media extension.",
-                f"Supported: {', '.join(sorted(MEDIA_EXT))}")
+            die(
+                "unsupported_input",
+                f"{local.suffix} is not a recognised media extension.",
+                f"Supported: {', '.join(sorted(MEDIA_EXT))}",
+            )
         if args.no_asr:
-            die("no_captions", "Local files have no caption track and --no-asr was set.",
-                "Re-run without --no-asr.")
-        dur = run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                   "-of", "csv=p=0", str(local)]).stdout.strip()
-        meta = {"source": "local-file", "video_id": None, "title": local.stem,
-                "channel": None, "url": None,
-                "duration_s": float(dur) if dur else None,
-                "upload_date": None, "language": args.lang, "chapters": []}
+            die(
+                "no_captions",
+                "Local files have no caption track and --no-asr was set.",
+                "Re-run without --no-asr.",
+            )
+        dur = run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "csv=p=0",
+                str(local),
+            ]
+        ).stdout.strip()
+        meta = {
+            "source": "local-file",
+            "video_id": None,
+            "title": local.stem,
+            "channel": None,
+            "url": None,
+            "duration_s": float(dur) if dur else None,
+            "upload_date": None,
+            "language": args.lang,
+            "chapters": [],
+        }
         segs, kind, track = transcribe(extract_audio(str(local), out), args.asr_model), "asr", None
 
     quality = assess(segs, meta.get("duration_s"), kind or "asr")
-    meta.update({"transcript_source": kind, "caption_track": track,
-                 "transcript_quality": quality["status"]})
-    tpath.write_text(json.dumps({"kind": kind, "track": track, "quality": quality,
-                                 "segments": segs}, indent=2, ensure_ascii=False))
+    meta.update(
+        {"transcript_source": kind, "caption_track": track, "transcript_quality": quality["status"]}
+    )
+    tpath.write_text(
+        json.dumps(
+            {"kind": kind, "track": track, "quality": quality, "segments": segs},
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
     mpath.write_text(json.dumps(meta, indent=2, ensure_ascii=False))
 
-    print(json.dumps({"transcript": str(tpath), "metadata": str(mpath),
-                      "kind": kind, "segments": len(segs),
-                      "quality": quality["status"], "reasons": quality["reasons"]}, indent=2))
+    print(
+        json.dumps(
+            {
+                "transcript": str(tpath),
+                "metadata": str(mpath),
+                "kind": kind,
+                "segments": len(segs),
+                "quality": quality["status"],
+                "reasons": quality["reasons"],
+            },
+            indent=2,
+        )
+    )
     if quality["status"] == "fail":
-        sys.stderr.write(json.dumps({
-            "error": "transcript_quality_fail",
-            "message": f"Transcript rejected: {', '.join(quality['reasons'])}.",
-            "fix": "Inspect transcript.json. Retry with a different --lang, or with "
-                   "--asr-model medium if the audio is hard. Do not build notes on this."}) + "\n")
+        sys.stderr.write(
+            json.dumps(
+                {
+                    "error": "transcript_quality_fail",
+                    "message": f"Transcript rejected: {', '.join(quality['reasons'])}.",
+                    "fix": "Inspect transcript.json. Retry with a different --lang, or with "
+                    "--asr-model medium if the audio is hard. Do not build notes on this.",
+                }
+            )
+            + "\n"
+        )
         return 1
     return 0
 
@@ -585,41 +759,68 @@ def self_check() -> int:
 
     # Original language is inferable from the shared source subtag of the
     # translation list even when yt-dlp reports language: NA.
-    assert infer_base_lang({"automatic_captions": {"en": [], "ab-en": [], "af-en": []}}, "xx") == "en"
+    assert (
+        infer_base_lang({"automatic_captions": {"en": [], "ab-en": [], "af-en": []}}, "xx") == "en"
+    )
     assert infer_base_lang({"language": "de-DE"}, "en") == "de"
 
-    real_auto = {"language": None, "subtitles": {},
-                 "automatic_captions": {"en": [{"ext": "vtt"}], "de": [{"ext": "vtt"}],
-                                        "ab-en": [{"ext": "vtt"}, {"ext": "json3"}]}}
+    real_auto = {
+        "language": None,
+        "subtitles": {},
+        "automatic_captions": {
+            "en": [{"ext": "vtt"}],
+            "de": [{"ext": "vtt"}],
+            "ab-en": [{"ext": "vtt"}, {"ext": "json3"}],
+        },
+    }
     assert pick_track(real_auto, "en") == ("auto", "en", "vtt"), pick_track(real_auto, "en")
 
-    german = {"language": "de", "subtitles": {},
-              "automatic_captions": {"de": [{"ext": "json3"}], "en-de": [{"ext": "json3"}]}}
-    assert pick_track(german, "en") == ("auto", "de", "json3"), "must not take the en-de translation"
+    german = {
+        "language": "de",
+        "subtitles": {},
+        "automatic_captions": {"de": [{"ext": "json3"}], "en-de": [{"ext": "json3"}]},
+    }
+    assert pick_track(german, "en") == ("auto", "de", "json3"), (
+        "must not take the en-de translation"
+    )
 
     # YouTube names real CC tracks with opaque ids; manual must still win.
-    cc = {"language": "en", "subtitles": {"en-uYU-mmqFLq8": [{"ext": "vtt"}]},
-          "automatic_captions": {"en": [{"ext": "json3"}]}}
+    cc = {
+        "language": "en",
+        "subtitles": {"en-uYU-mmqFLq8": [{"ext": "vtt"}]},
+        "automatic_captions": {"en": [{"ext": "json3"}]},
+    }
     assert pick_track(cc, "en") == ("manual", "en-uYU-mmqFLq8", "vtt"), pick_track(cc, "en")
     assert pick_track({"subtitles": {}, "automatic_captions": {}}, "en") is None
 
-    vtt = ("WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nhello there\n\n"
-           "00:00:03.000 --> 00:00:05.000\nhello there world\n\n"
-           "00:00:05.000 --> 00:00:07.000\n<c>styled</c> tail\n")
+    vtt = (
+        "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nhello there\n\n"
+        "00:00:03.000 --> 00:00:05.000\nhello there world\n\n"
+        "00:00:05.000 --> 00:00:07.000\n<c>styled</c> tail\n"
+    )
     segs = parse_vtt(vtt)
     assert [s["text"] for s in segs] == ["hello there", "world", "styled tail"], segs
     assert segs[0]["start_ms"] == 1000 and segs[0]["end_ms"] == 3000
 
     # Rolling captions SHIFT their window; matching a plain prefix misses them
     # entirely and inflates the transcript ~3x.
-    roll = [{"start_ms": i * 1000, "end_ms": i * 1000 + 1000, "text": t}
-            for i, t in enumerate(["the quick brown", "quick brown fox",
-                                   "brown fox jumps", "fox jumps over"])]
-    assert [s["text"] for s in dedupe_rolling(roll)] == \
-        ["the quick brown", "fox", "jumps", "over"], dedupe_rolling(roll)
+    roll = [
+        {"start_ms": i * 1000, "end_ms": i * 1000 + 1000, "text": t}
+        for i, t in enumerate(
+            ["the quick brown", "quick brown fox", "brown fox jumps", "fox jumps over"]
+        )
+    ]
+    assert [s["text"] for s in dedupe_rolling(roll)] == [
+        "the quick brown",
+        "fox",
+        "jumps",
+        "over",
+    ], dedupe_rolling(roll)
     # A cue that adds nothing extends the previous segment instead of repeating it.
-    same = [{"start_ms": 0, "end_ms": 1000, "text": "hello world"},
-            {"start_ms": 1000, "end_ms": 2000, "text": "hello world"}]
+    same = [
+        {"start_ms": 0, "end_ms": 1000, "text": "hello world"},
+        {"start_ms": 1000, "end_ms": 2000, "text": "hello world"},
+    ]
     assert dedupe_rolling(same) == [{"start_ms": 0, "end_ms": 2000, "text": "hello world"}]
     assert word_overlap(["a", "b"], ["c", "d"]) == 0
     assert word_overlap([], ["a"]) == 0
@@ -627,30 +828,66 @@ def self_check() -> int:
     # A scrolling 3-word window must reconstruct the original word stream
     # exactly, and must strip the ~3x bloat it introduces.
     stream = [f"w{i % 97}" for i in range(600)]
-    win = [{"start_ms": i * 700, "end_ms": i * 700 + 2100,
-            "text": " ".join(stream[i:i + 3])} for i in range(len(stream) - 2)]
+    win = [
+        {"start_ms": i * 700, "end_ms": i * 700 + 2100, "text": " ".join(stream[i : i + 3])}
+        for i in range(len(stream) - 2)
+    ]
     rebuilt = " ".join(s["text"] for s in dedupe_rolling(win)).split()
     assert rebuilt == stream, f"lost {len(stream) - len(rebuilt)} words"
     raw_chars = sum(len(c["text"]) for c in win)
     assert raw_chars / sum(len(s["text"]) for s in dedupe_rolling(win)) > 2.5
 
-    j3 = json.dumps({"events": [{"tStartMs": 500, "dDurationMs": 900,
-                                 "segs": [{"utf8": "a "}, {"utf8": "b"}]},
-                                {"tStartMs": 1400, "segs": [{"utf8": "\n"}]}]})
+    j3 = json.dumps(
+        {
+            "events": [
+                {"tStartMs": 500, "dDurationMs": 900, "segs": [{"utf8": "a "}, {"utf8": "b"}]},
+                {"tStartMs": 1400, "segs": [{"utf8": "\n"}]},
+            ]
+        }
+    )
     assert parse_json3(j3) == [{"start_ms": 500, "end_ms": 1400, "text": "a b"}]
 
     import random
+
     assert repetition_ratio("abcd" * 400) >= REP_FAIL, "looping ASR must read as repetitive"
 
     # Length invariance: the whole-transcript version of this metric saturated
     # with duration and failed every long video. Healthy prose must stay under
     # REP_WARN at 1 minute AND at 2 hours.
     random.seed(7)
-    vocab = ("the quick brown fox jumps over lazy dog retrieval augmented generation "
-             "embedding vector database index chunk semantic search latency throughput "
-             "model context window token cost inference prompt cache evaluation").split()
+    vocab = [
+        "the",
+        "quick",
+        "brown",
+        "fox",
+        "jumps",
+        "over",
+        "lazy",
+        "dog",
+        "retrieval",
+        "augmented",
+        "generation",
+        "embedding",
+        "vector",
+        "database",
+        "index",
+        "chunk",
+        "semantic",
+        "search",
+        "latency",
+        "throughput",
+        "model",
+        "context",
+        "window",
+        "token",
+        "cost",
+        "inference",
+        "prompt",
+        "cache",
+        "evaluation",
+    ]
     for minutes in (1, 30, 120):
-        prose = " ".join(random.choice(vocab) for _ in range(minutes * 150))
+        prose = " ".join(random.choice(vocab) for _ in range(minutes * 150))  # noqa: S311 - jitter and humanisation timing, never cryptographic
         eff = "".join(c.lower() for c in prose if c.isalnum())
         assert repetition_ratio(eff) < REP_WARN, f"healthy {minutes}min prose flagged"
 
@@ -658,12 +895,20 @@ def self_check() -> int:
     steps = "".join(f"step{i}clickthebuttonthenwait" for i in range(300))
     assert REP_WARN <= repetition_ratio(steps) < REP_FAIL, "enumerated steps must warn, not fail"
 
-    good = [{"start_ms": i * 1000, "end_ms": i * 1000 + 900,
-             "text": " ".join(random.choice(vocab) for _ in range(12))} for i in range(60)]
+    good = [
+        {
+            "start_ms": i * 1000,
+            "end_ms": i * 1000 + 900,
+            "text": " ".join(random.choice(vocab) for _ in range(12)),  # noqa: S311 - jitter and humanisation timing, never cryptographic
+        }
+        for i in range(60)
+    ]
     assert assess(good, 60.0, "auto")["status"] == "pass", assess(good, 60.0, "auto")
     assert assess([], 60.0, "auto")["status"] == "fail"
-    loop = [{"start_ms": i * 1000, "end_ms": i * 1000 + 1000, "text": "thanks for watching"}
-            for i in range(120)]
+    loop = [
+        {"start_ms": i * 1000, "end_ms": i * 1000 + 1000, "text": "thanks for watching"}
+        for i in range(120)
+    ]
     assert "highly_repetitive" in assess(loop, 120.0, "asr")["reasons"]
     sparse = [{"start_ms": 0, "end_ms": 1000, "text": "x" * 50}]
     assert assess(sparse, 600.0, "asr")["status"] == "fail"

@@ -1,6 +1,6 @@
 ---
 name: video-keyframes
-description: Captures scene-change screenshots from a local video file, OCRs them, and writes a timeline digest of what is on screen when. Use when the user asks to pull slides, screenshots, keyframes or stills out of a video, to read on-screen text or code, or what is visible at a given timestamp. Not for transcribing speech or for writing up notes.
+description: Captures scene-change frames from a local video or mp4, OCRs them, and writes a timeline digest of what is on screen when. Use when the user asks to pull or sample frames, slides, screenshots, keyframes or stills from a video or a time range, to read on-screen text, code or a diagram, or what is visible at a timestamp. Not for transcribing speech or writing notes.
 license: MIT
 argument-hint: <video-file> [timestamp]
 ---
