@@ -7,6 +7,12 @@ versioning: [SemVer](https://semver.org) on the plugin manifest
 
 ## [Unreleased]
 
+### Fixed
+- `video-transcribe`: a local file without ffmpeg installed crashed with
+  `FileNotFoundError: 'ffprobe'`; it now fails with the `missing_dependency`
+  error and an install hint. The `no_asr_backend` fix text now says to set
+  `WHISPER_CPP_MODEL` to the downloaded model's path.
+
 ## [0.2.0] - 2026-08-31
 
 ### Added

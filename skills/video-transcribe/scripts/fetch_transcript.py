@@ -521,7 +521,7 @@ def transcribe(wav: Path, model: str) -> list[dict]:
             "No caption track was available and no local ASR backend is installed.",
             (
                 "Install whisper.cpp for Metal acceleration: `brew install whisper-cpp` and "
-                "download a model (e.g. ggml-small.bin)."
+                "download a model (e.g. ggml-small.bin), then set WHISPER_CPP_MODEL to its path."
                 if apple
                 else "Install faster-whisper: `uv pip install faster-whisper`."
             )
@@ -681,6 +681,12 @@ def main() -> int:
                 "no_captions",
                 "Local files have no caption track and --no-asr was set.",
                 "Re-run without --no-asr.",
+            )
+        if not shutil.which("ffprobe"):
+            die(
+                "missing_dependency",
+                "ffprobe (part of ffmpeg) is required to read a local file.",
+                "Install it: `brew install ffmpeg` (macOS) or `sudo apt install ffmpeg`.",
             )
         dur = run(
             [
