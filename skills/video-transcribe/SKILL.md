@@ -73,8 +73,9 @@ is a guess. That distinction changes how much they should trust a quote.
 An auto-**translation** is never used. YouTube names them `<target>-<source>`
 (`en-de` is "English from German"), and a machine translation of a machine
 transcription compounds two error rates. The script resolves the video's own
-language first — falling back to the shared source subtag of the translation
-list when yt-dlp reports `language: NA`, which is common.
+language first — from the audio track yt-dlp marks as original on dubbed
+videos, then the declared `language`, then the shared source subtag of the
+translation list when yt-dlp reports `language: NA`, which is common.
 
 Details and the exact selection rules: [references/caption-ladder.md](references/caption-ladder.md).
 

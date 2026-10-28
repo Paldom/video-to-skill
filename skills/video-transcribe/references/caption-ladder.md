@@ -25,12 +25,21 @@ auto-translations `<target>-<source>`, so the source subtag shared across the
 translation list *is* the original language. A video whose auto-caption list is
 `en`, `ab-en`, `aa-en`, `af-en`… is an English video.
 
+The declared `language` can also be **wrong**. yt-dlp copies it from the format
+it would download, and on a video with dubbed audio tracks that format can be a
+dub: `5_N84t1rUU0` is spoken English but reports `ar` when format 18 is
+selected. yt-dlp marks the original audio track with `language_preference` ≥ 10
+(`en-US` there), so when exactly one language carries that mark it is used
+before `language`. On such videos the plain `en` auto track can itself be a
+translation (`lang=ar&tlang=en`: English from the Arabic dub's captions), so
+`<lang>-orig` is preferred over `<lang>`.
+
 ### Code shapes
 
 | Code | Meaning | Accepted |
 | --- | --- | --- |
+| `en-orig` | untranslated auto track | yes (preferred) |
 | `en` | plain track in that language | yes |
-| `en-orig` | untranslated auto track | yes |
 | `en-US`, `zh-Hans`, `pt-BR` | regional / script variant | yes |
 | `en-uYU-mmqFLq8` | a real CC track with an opaque id | yes (manual only) |
 | `ab-en` | Abkhazian **from** English — a machine translation | **no** |

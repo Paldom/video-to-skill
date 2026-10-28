@@ -102,7 +102,19 @@ def infer_base_lang(info: dict, want_lang: str) -> str:
     `language` is often absent (yt-dlp reports NA on plenty of videos). The
     reliable fallback: YouTube names auto-translations "<target>-<source>", so
     the source subtag shared by the translation list IS the original language.
+
+    `language` can also be wrong: yt-dlp copies it from the format it would
+    download, which on a video with dubbed audio tracks can be a dub. yt-dlp
+    marks the original audio track with language_preference >= 10, so that
+    track's language wins when exactly one language carries the mark.
     """
+    originals = {
+        f["language"].split("-")[0].lower()
+        for f in info.get("formats") or []
+        if isinstance(f, dict) and f.get("language") and (f.get("language_preference") or 0) >= 10
+    }
+    if len(originals) == 1:
+        return originals.pop()
     declared = info.get("language")
     if declared:
         return declared.split("-")[0].lower()
@@ -158,7 +170,10 @@ def pick_track(info: dict, want_lang: str) -> tuple[str, str, str] | None:
             continue  # machine translation of a machine transcript: compounds error
         ext = _best_ext(fmts)
         if ext:
-            auto.append((0 if code == base else 1, code, ext))
+            # `<base>-orig` is never translated. On dubbed videos plain `<base>`
+            # can be a translation of a dub's captions (lang=ar&tlang=en).
+            rank = 0 if code == f"{base}-orig" else 1 if code == base else 2
+            auto.append((rank, code, ext))
     if auto:
         auto.sort()
         return ("auto", auto[0][1], auto[0][2])
@@ -763,6 +778,26 @@ def self_check() -> int:
         infer_base_lang({"automatic_captions": {"en": [], "ab-en": [], "af-en": []}}, "xx") == "en"
     )
     assert infer_base_lang({"language": "de-DE"}, "en") == "de"
+
+    # Dubbed video: `language` is copied from a dub's format. The audio track
+    # yt-dlp marks as original wins, and `-orig` beats the plain `en` track,
+    # which there is a translation of the dub's captions.
+    dubbed = {
+        "language": "ar",
+        "formats": [
+            {"language": "ar", "language_preference": -1},
+            {"language": "en-US", "language_preference": 10},
+        ],
+        "subtitles": {},
+        "automatic_captions": {
+            "ar": [{"ext": "json3"}],
+            "ar-orig": [{"ext": "json3"}],
+            "en": [{"ext": "json3"}],
+            "en-orig": [{"ext": "json3"}],
+        },
+    }
+    assert infer_base_lang(dubbed, "xx") == "en", infer_base_lang(dubbed, "xx")
+    assert pick_track(dubbed, "en") == ("auto", "en-orig", "json3"), pick_track(dubbed, "en")
 
     real_auto = {
         "language": None,

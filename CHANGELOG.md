@@ -7,6 +7,15 @@ versioning: [SemVer](https://semver.org) on the plugin manifest
 
 ## [Unreleased]
 
+### Fixed
+- `video-transcribe`: on videos with dubbed audio tracks, yt-dlp's `language` is
+  copied from the format it would download, which can be a dub (`5_N84t1rUU0`,
+  spoken English, reports `ar` when format 18 is selected), so the script could
+  request Arabic auto-captions. The plain `en` auto track there is also a
+  translation of the dub's captions. The language now comes first from the audio
+  track yt-dlp marks as original (`language_preference` ≥ 10), and `<lang>-orig`
+  is preferred over `<lang>`.
+
 ## [0.2.0] - 2026-08-31
 
 ### Added
